@@ -2,7 +2,13 @@ import boto3
 import time
 import json
 import re
+import traceback
 
+# --- Configuration ---
+# Define the bucket where intermediate processed files will be stored
+PROCESSING_BUCKET = "de-processing-bucket"
+
+# Initialize AWS clients once
 textract = boto3.client("textract")
 s3_client = boto3.client("s3")
 
@@ -13,6 +19,7 @@ def start_textract_job(bucket, key):
     )
     return response["JobId"]
 
+
 def is_job_complete(job_id):
     while True:
         response = textract.get_document_analysis(JobId=job_id)
@@ -22,6 +29,7 @@ def is_job_complete(job_id):
                 print(f"Textract job failed: {response.get('StatusMessage')}")
             return status == "SUCCEEDED"
         time.sleep(2)
+
 
 def get_all_textract_blocks(job_id):
     all_blocks = []
@@ -40,6 +48,7 @@ def get_all_textract_blocks(job_id):
             
     return all_blocks
 
+
 def is_block_inside_tables(line_block, table_geometries):
     line_box = line_block.get('Geometry', {}).get('BoundingBox')
     if not line_box:
@@ -53,6 +62,7 @@ def is_block_inside_tables(line_block, table_geometries):
             table_box['Top'] <= line_center_y <= table_box['Top'] + table_box['Height']):
             return True
     return False
+
 
 def extract_text_and_tables(blocks):
     raw_text_lines = []
@@ -141,8 +151,17 @@ def extract_text_and_tables(blocks):
 
     return "\n".join(raw_text_lines), tables
 
+
+# --- UPDATED LAMBDA HANDLER SECTION ---
+
 def lambda_handler(event, context):
+    """
+    Receives the S3 location of an SOP, runs Textract, saves the full
+    result to a new S3 file, and returns the location of that new file.
+    """
     try:
+        # Step 1: Get the source bucket and key from the Step Function input.
+        # This part of code is already compatible.
         if "Records" in event:
             record = event['Records'][0]
             bucket = record['s3']['bucket']['name']
@@ -150,47 +169,69 @@ def lambda_handler(event, context):
         else:
             bucket = event["bucket"]
             key = event["key"]
+            
     except KeyError as e:
-         return { "status": "error", "message": f"Missing required event key: {e}" }
+       raise ValueError(f"Missing required event key: {e}")
 
-    sop_filename = key.split("/")[-1]
+    sop_filename_with_ext = key.split("/")[-1]
+    sop_filename_base = sop_filename_with_ext.rsplit('.', 1)[0]
+    
+    # Define the S3 location for the output JSON file
+    output_key = f"extracted-text/{sop_filename_base}_extracted.json"
 
     try:
+        # Step 2: Run your existing Textract logic to get raw_text and tables.
+        # NO CHANGES were made to this logic.
         job_id = start_textract_job(bucket, key)
         print(f"Started Textract job {job_id} for {key}")
         
-        success = is_job_complete(job_id)
-        if not success:
-            return {
-                "status": "error",
-                "message": f"Textract job {job_id} failed on {key}"
-            }
+        if not is_job_complete(job_id):
+            raise Exception(f"Textract job {job_id} failed on {key}")
 
         all_blocks = get_all_textract_blocks(job_id)
         raw_text, tables = extract_text_and_tables(all_blocks)
 
-        return {
-            "status": "success",
-            "sop_filename": sop_filename,
-            "bucket": bucket,
-            "key": key,
-            "s3_key": key,  # ✅ Added this line for SOP_Structure_Formation_Lambda
+        # Step 3: Create the full data payload to be saved.
+        output_data = {
+            "source_bucket": bucket,
+            "source_key": key,
+            "sop_filename": sop_filename_with_ext,
             "raw_text": raw_text,
             "tables": tables
         }
 
+        # Step 4: Save the full payload to a new JSON file in S3.
+        s3_client.put_object(
+            Bucket=PROCESSING_BUCKET,
+            Key=output_key,
+            Body=json.dumps(output_data, indent=2),
+            ContentType='application/json'
+        )
+        print(f"Successfully saved extracted data to s3://{PROCESSING_BUCKET}/{output_key}")
+
+        # Step 5: Return ONLY the location of the output file.
+        # This creates the 'extracted_text_output' key that the next function needs.
+        return {
+            "status": "success",
+            "sop_filename": sop_filename_with_ext,
+            "extracted_text_output": {
+                "s3_bucket": PROCESSING_BUCKET,
+                "s3_key": output_key
+            }
+        }
+
     except Exception as e:
         print(f"An error occurred: {e}")
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        print(traceback.format_exc())
+        # Re-raise the exception to make the Step Function task fail correctly.
+        raise e
 
 
 """
-Lambda Test event
+Lambda Json Test Event
 {
   "bucket": "incoming-sop",
   "key": "SOP/TEST SoP MR.pdf"
 }
+
 """
