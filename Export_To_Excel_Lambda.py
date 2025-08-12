@@ -3,13 +3,16 @@ import boto3
 import pandas as pd
 import io
 import os
+import traceback
 
 # Initialize the S3 client
 s3_client = boto3.client('s3')
 
 # Define the target bucket for the output Excel file
-# It's better to get this from an environment variable for flexibility
 TARGET_BUCKET = os.environ.get('TARGET_BUCKET', 'sop-output-bucket')
+
+
+# --- NO CHANGES TO YOUR CORE LOGIC FUNCTIONS BELOW ---
 
 def format_list_column(data):
     """
@@ -35,30 +38,26 @@ def format_list_column(data):
         
     return ""
 
+
+# --- UPDATED LAMBDA HANDLER SECTION ---
+
 def lambda_handler(event, context):
     """
-    Lambda function to read a JSON analysis file from S3, convert it to Excel,
-    and upload the Excel file to another S3 bucket.
-
-    The event object is expected to contain the source S3 bucket and key.
-    Example event for Step Function integration:
-    {
-      "source_bucket": "de-processing-bucket",
-      "source_key": "analysis_results/TEST SoP MR_claude_analysis.json"
-    }
+    Reads the S3 location of the analysis JSON, converts it to Excel,
+    and uploads the final report. This handler is updated for Step Function integration.
     """
     print(f"Received event: {json.dumps(event)}")
 
-    # 1. Get the source bucket and key from the event object
     try:
-        source_bucket = event['source_bucket']
-        source_key = event['source_key']
-    except KeyError:
-        print("ERROR: Event object must contain 'source_bucket' and 'source_key'.")
-        return {
-            'statusCode': 400,
-            'body': json.dumps('Error: Missing source_bucket or source_key in the event payload.')
-        }
+        # Step 1: Get the source bucket and key from the event object.
+        # THIS IS THE UPDATED SECTION: It now looks for 's3_bucket' and 's3_key'.
+        source_bucket = event['s3_bucket']
+        source_key = event['s3_key']
+
+    except KeyError as e:
+        error_msg = f"Error: Missing required key in the event payload: {e}. This function expects 's3_bucket' and 's3_key'."
+        print(error_msg)
+        raise ValueError(error_msg)
 
     try:
         # 2. Read the JSON file from the source S3 bucket
@@ -79,13 +78,11 @@ def lambda_handler(event, context):
         if 'Considerations' in df.columns:
             df['Considerations'] = df['Considerations'].apply(format_list_column)
 
-
-        # 4. Determine the output filename based on the 'source_sop_file'
-        source_sop_path = data.get('source_sop_file', 'unknown_sop')
-        # Extract the base name, e.g., "TEST SoP MR" from "processed-sop/TEST SoP MR_processed.json"
-        base_name = os.path.basename(source_sop_path)
-        sop_name = base_name.replace('_processed.json', '')
-        output_filename = f"{sop_name} Final Output.xlsx"
+        # 4. Determine the output filename based on the source file key
+        # (This logic from your original code is slightly improved)
+        base_name = os.path.basename(source_key) # e.g., "TEST SoP MR_claude_analysis.json"
+        sop_name = base_name.replace('_claude_analysis.json', '') # e.g., "TEST SoP MR"
+        output_filename = f"{sop_name}_Final_Analysis.xlsx"
         output_key = f"excel_outputs/{output_filename}" # Store in a sub-folder
 
         # 5. Create the Excel file in-memory
@@ -100,8 +97,8 @@ def lambda_handler(event, context):
                     column_letter = column[0].column_letter
                     for cell in column:
                         try:
-                            if len(str(cell.value)) > max_length:
-                                max_length = len(str(cell.value))
+                            if cell.value:
+                                max_length = max(len(str(cell.value)), max_length)
                         except:
                             pass
                     adjusted_width = (max_length + 2)
@@ -116,28 +113,26 @@ def lambda_handler(event, context):
             Body=excel_data,
             ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+        
+        final_report_location = f"s3://{TARGET_BUCKET}/{output_key}"
+        print(f"Workflow complete. Final report available at: {final_report_location}")
 
-        print(f"Successfully created '{output_key}' and uploaded to bucket '{TARGET_BUCKET}'.")
-
-        # 7. Return a success response with the output file location
+        # 7. Return a success response for the Step Function.
         return {
-            'statusCode': 200,
-            'body': json.dumps({
-                'message': 'Excel file created and uploaded successfully.',
-                'output_bucket': TARGET_BUCKET,
-                'output_key': output_key
-            })
+            "status": "success",
+            "final_report_location": final_report_location
         }
 
-    except s3_client.exceptions.NoSuchKey:
-        print(f"ERROR: The file '{source_key}' does not exist in bucket '{source_bucket}'.")
-        return {
-            'statusCode': 404,
-            'body': json.dumps('Error: Source file not found in S3.')
-        }
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
-        return {
-            'statusCode': 500,
-            'body': json.dumps(f'An internal error occurred: {str(e)}')
-        }
+        print(traceback.format_exc())
+        raise e
+
+"""
+Lambda Test Event
+{
+  "s3_bucket": "de-processing-bucket",
+  "s3_key": "analysis_results/TEST SoP MR_claude_analysis.json"
+}
+
+"""
