@@ -1,0 +1,90 @@
+{
+  "Comment": "Processes an SOP against the latest available DE Template.",
+  "StartAt": "Process SOP and Find Template in Parallel",
+  "States": {
+    "Process SOP and Find Template in Parallel": {
+      "Type": "Parallel",
+      "Next": "Claude Analysis",
+      "Branches": [
+        {
+          "StartAt": "Extract Text from SOP",
+          "States": {
+            "Extract Text from SOP": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:978981927620:function:Extract_Text_Lambda",
+              "Parameters": {
+                "bucket.$": "$.detail.bucket.name",
+                "key.$": "$.detail.object.key"
+              },
+              "ResultPath": "$.ExtractedText",
+              "Next": "Structure SOP File"
+            },
+            "Structure SOP File": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:978981927620:function:SOP_Structure_Formation",
+              "InputPath": "$.ExtractedText",
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "Find Latest DE Template",
+          "States": {
+            "Find Latest DE Template": {
+              "Type": "Task",
+              "Resource": "arn:aws:lambda:us-east-1:978981927620:function:Find_Latest_Template_Lambda",
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultPath": "$.ParallelOutputs",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Workflow Failed"
+        }
+      ]
+    },
+    "Claude Analysis": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:978981927620:function:Claude_Analysis_Lambda",
+      "Parameters": {
+        "structured_sop_input.$": "$.ParallelOutputs[0]",
+        "de_template_input.$": "$.ParallelOutputs[1]"
+      },
+      "ResultPath": "$.AnalysisOutput",
+      "Next": "Export to Excel",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Workflow Failed"
+        }
+      ]
+    },
+    "Export to Excel": {
+      "Type": "Task",
+      "Resource": "arn:aws:lambda:us-east-1:978981927620:function:Export_To_Excel_Lambda",
+      "InputPath": "$.AnalysisOutput",
+      "Next": "Workflow Succeeded",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "Next": "Workflow Failed"
+        }
+      ]
+    },
+    "Workflow Failed": {
+      "Type": "Fail"
+    },
+    "Workflow Succeeded": {
+      "Type": "Succeed"
+    }
+  }
+}
