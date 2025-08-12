@@ -1,10 +1,12 @@
 import re
 import boto3
 import json
+import traceback
 
 # --- Configuration Section ---
 METADATA_KEYWORDS = {"Responsible", "Accountable", "Consulted", "Informed"}
 REVISION_HEADERS = ["Version", "Date", "Description", "Contributor"]
+
 
 HEADING_REGEX = re.compile(
     r"^(\d+(?:\.\d+)*\s+(?!"
@@ -21,7 +23,14 @@ HEADING_REGEX = re.compile(
     re.MULTILINE | re.IGNORECASE
 )
 
+
 MAIN_SECTION_REGEX = re.compile(r"^\d+\s")
+
+# Initialize S3 client once for better performance
+s3_client = boto3.client("s3")
+
+
+# --- NO CHANGES TO YOUR CORE LOGIC BELOW THIS LINE ---
 
 def _parse_sections(raw_text):
     headings = []
@@ -39,6 +48,7 @@ def _parse_sections(raw_text):
         content_map[head["heading"]] = raw_text[content_start:content_end].strip()
 
     return headings, content_map
+
 
 def _categorize_tables(tables):
     metadata_table = None
@@ -67,6 +77,7 @@ def _categorize_tables(tables):
             body_tables.append(table)
 
     return metadata_table, revision_rows, body_tables
+
 
 def SOP_Structure_Formation(sop_data):
     raw_text = sop_data.get("raw_text", "")
@@ -127,38 +138,70 @@ def SOP_Structure_Formation(sop_data):
 
     return final_output
 
-# --- Lambda Handler with S3 Upload ---
+# --- UPDATED LAMBDA HANDLER SECTION ---
+# This handler is now designed to work correctly within the Step Function.
+
 def lambda_handler(event, context):
+    """
+    Reads the S3 location of the extracted text file from the previous step,
+    runs the structuring logic, saves the result to S3, and returns the
+    new S3 location.
+    """
     try:
-        result = SOP_Structure_Formation(event)
+        # Step 1: Get the S3 location of the file from the previous Lambda's output.
+        # The Step Function passes this as the input 'event'.
+        input_bucket = event["extracted_text_output"]["s3_bucket"]
+        input_key = event["extracted_text_output"]["s3_key"]
 
-        # Get SOP file name from the event (from Extract_Text_Lambda output)
-        sop_filename = event.get("sop_filename", "output")
-        output_filename = sop_filename.rsplit(".", 1)[0] + "_processed.json"
+        print(f"Reading input data from: s3://{input_bucket}/{input_key}")
 
-        # Upload result to S3
-        s3 = boto3.client("s3")
-        bucket_name = "de-processing-bucket"
-        s3_key = f"processed-sop/{output_filename}"
+        # Step 2: Read the JSON file from S3 to get the raw text and tables.
+        response = s3_client.get_object(Bucket=input_bucket, Key=input_key)
+        sop_data_from_s3 = json.loads(response['Body'].read().decode('utf-8'))
 
-        s3.put_object(
-            Bucket=bucket_name,
-            Key=s3_key,
-            Body=json.dumps(result, indent=2),
+        # Step 3: Run your existing core structuring logic on the loaded data.
+        # NO CHANGES were made to this function.
+        structured_result = SOP_Structure_Formation(sop_data_from_s3)
+
+        # Step 4: Define the output file path.
+        # We get the original filename from the data we just loaded from S3.
+        sop_filename_base = sop_data_from_s3.get("sop_filename", "unknown.txt").rsplit('.', 1)[0]
+        output_filename = f"{sop_filename_base}_processed.json"
+        
+        output_bucket = "de-processing-bucket"
+        output_key = f"processed-sop/{output_filename}"
+
+        # Step 5: Save the structured result to a new file in S3.
+        s3_client.put_object(
+            Bucket=output_bucket,
+            Key=output_key,
+            Body=json.dumps(structured_result, indent=2),
             ContentType="application/json"
         )
+        print(f"Successfully saved structured SOP to: s3://{output_bucket}/{output_key}")
 
+        # Step 6: Return ONLY the location of the new file.
+        # This small, clean output fixes the error in the next Step Function step.
         return {
-            "status": "success",
-            "message": f"Structured SOP exported to s3://{bucket_name}/{s3_key}",
-            "s3_output_path": f"s3://{bucket_name}/{s3_key}",
-            "structured_sop": result
+            "s3_bucket": output_bucket,
+            "s3_key": output_key
         }
 
     except Exception as e:
-        import traceback
+        print(f"An error occurred: {e}")
         print(traceback.format_exc())
-        return {
-            "status": "error",
-            "message": str(e)
-        }
+        # Re-raise the exception to make the Step Function task fail correctly.
+        raise e
+
+
+"""
+Lambda Test Event
+{
+  "status": "success",
+  "sop_filename": "TEST SoP MR.pdf",
+  "extracted_text_output": {
+    "s3_bucket": "de-processing-bucket",
+    "s3_key": "extracted-text/TEST SoP MR_extracted.json"
+  }
+}
+"""
