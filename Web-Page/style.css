@@ -1,0 +1,120 @@
+body {
+    font-family: sans-serif; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+    min-height: 100vh; 
+    background-color: #f4f4f9; 
+    margin: 0;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.container {
+    text-align: center; 
+    background: white;
+    padding: 40px; 
+    border-radius: 8px; 
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+    max-width: 600px;
+    width: 100%;
+}
+
+h1 { 
+    color: #333;
+    margin-bottom: 30px;
+}
+
+h2 {
+    color: #555;
+    margin-bottom: 15px;
+    font-size: 1.3em;
+}
+
+.upload-section {
+    margin: 30px 0;
+    padding: 25px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    background-color: #fafafa;
+}
+
+.upload-section:first-of-type {
+    border-color: #007bff;
+    background-color: #f8f9ff;
+}
+
+.upload-section:last-of-type {
+    border-color: #28a745;
+    background-color: #f8fff9;
+}
+
+.upload-section p {
+    margin-bottom: 20px;
+    color: #666;
+}
+
+input[type="file"] { 
+    margin: 20px 0;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    width: 100%;
+    max-width: 300px;
+}
+
+button { 
+    padding: 12px 24px; 
+    font-size: 16px; 
+    color: white; 
+    background-color: #007bff; 
+    border: none; 
+    border-radius: 5px; 
+    cursor: pointer;
+    margin: 10px 0;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+button:disabled { 
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+#templateUploadButton {
+    background-color: #28a745;
+}
+
+#templateUploadButton:hover {
+    background-color: #1e7e34;
+}
+
+#statusMessage, #templateStatusMessage { 
+    margin-top: 20px; 
+    font-size: 16px; 
+    color: #555;
+    min-height: 20px;
+}
+
+.success {
+    color: #28a745 !important;
+}
+
+.error {
+    color: #dc3545 !important;
+}
+
+@media (max-width: 768px) {
+    .container {
+        padding: 20px;
+        margin: 10px;
+    }
+    
+    .upload-section {
+        padding: 15px;
+        margin: 20px 0;
+    }
+}
