@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DE Automation</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>DE Automation</h1>
+        
+        <!-- SOP Upload Section -->
+        <div class="upload-section">
+            <h2>SOP Document Upload</h2>
+            <p>Upload an SOP Document (.pdf or .docx) to begin analysis.</p>
+            <input type="file" id="fileInput" accept=".pdf,.docx">
+            <button id="uploadButton">Upload SOP File</button>
+            <div id="statusMessage"></div>
+        </div>
+
+        <!-- Template Upload Section -->
+        <div class="upload-section">
+            <h2>De-Template Upload</h2>
+            <p>Upload Excel template file (.xlsx or .xls) - Updated yearly.</p>
+            <input type="file" id="templateInput" accept=".xlsx,.xls">
+            <button id="templateUploadButton">Upload Template File</button>
+            <div id="templateStatusMessage"></div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
